@@ -33,7 +33,7 @@ def main() -> None:
     ap.add_argument("question", nargs="?", default="")
     ap.add_argument("--demo", action="store_true",
                     help="offline scripted run, no API key needed")
-    ap.add_argument("--model", default="claude-sonnet-4-5")
+    ap.add_argument("--model", default="claude-haiku-5-5")
     ap.add_argument("--max-steps", type=int, default=8)
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()

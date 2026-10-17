@@ -1,7 +1,7 @@
 # Architecture
 
 Three views of the same system: the big picture, one question end to end, and
-how the evals score a run. Diagrams are Mermaid and render on GitHub.
+how the evals score a run.
 
 ---
 
@@ -35,14 +35,14 @@ the tools are the hands.
 sequenceDiagram
     autonumber
     actor You
-    participant Loop as Agent loop
+    participant Agent as Agent loop
     participant Claude
     participant Tools
     participant DB as Warehouse
     participant Sem as Semantic layer
 
-    You->>Loop: "How many active merchants are there?"
-    Loop->>Claude: question + system rules + tool list
+    You->>Agent: "How many active merchants are there?"
+    Agent->>Claude: question + system rules + tool list
 
     Note over Claude,Tools: ORIENT
     Claude->>Tools: list_tables()
@@ -69,8 +69,9 @@ sequenceDiagram
     end
 
     Note over Claude,You: ANSWER
-    Claude-->>Loop: "There are N active merchants..."
-    Loop-->>You: answer + stop_reason
+    Claude-->>Agent: "There are N active merchants..."
+    Agent-->>You: answer + stop_reason
+
 ```
 
 ### The named steps
