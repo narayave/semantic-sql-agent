@@ -1,0 +1,129 @@
+# The golden dataset.
+#
+# Each case carries the ground truth SQL rather than a hard coded number, so the
+# expected answer is recomputed whenever the warehouse is reseeded. Scoring is
+# execution accuracy: run the agent, take the result of its last successful
+# query, compare to the result of the truth query.
+#
+# `requires_terms` lists the semantic terms a correct answer depends on. If the
+# agent gets a case wrong and never looked those up, the failure is bucketed as
+# semantic_miss rather than a generic wrong answer. That distinction is the
+# whole reason the semantic layer exists, so the evals have to measure it.
+#
+# Cases marked `trap: true` are answerable the obvious wrong way. They exist to
+# punish guessing. A model that skips lookup_term should score near zero on
+# those and near perfect on the rest.
+
+- id: vol_settled
+  q: What is the total settled volume in dollars?
+  truth: >
+    SELECT ROUND(SUM(txn_amt_cents)/100.0, 2)
+    FROM txns WHERE LOWER(status)='settled'
+  requires_terms: [settled volume]
+  trap: true          # failed txns are easy to include by accident
+
+- id: count_active
+  q: How many active merchants are there?
+  truth: SELECT COUNT(*) FROM merchants WHERE closed_dt IS NULL
+  requires_terms: [active merchant]
+  trap: true          # "all merchants" is the obvious wrong answer
+
+- id: count_churned
+  q: How many merchants have churned?
+  truth: SELECT COUNT(*) FROM merchants WHERE closed_dt IS NOT NULL
+  requires_terms: [churned merchant]
+
+- id: count_high_risk
+  q: How many merchants are high risk?
+  truth: SELECT COUNT(*) FROM merchants WHERE risk_tier='high'
+  requires_terms: [high risk merchant]
+
+- id: count_unassessed
+  q: How many merchants have never been risk assessed?
+  truth: SELECT COUNT(*) FROM merchants WHERE risk_tier IS NULL
+  requires_terms: [unassessed merchant]
+  trap: true          # NULL is not 'low'
+
+- id: chargeback_rate_overall
+  q: What is the overall chargeback rate?
+  truth: >
+    SELECT ROUND(100.0 * (SELECT COUNT(*) FROM disputes)
+      / (SELECT COUNT(*) FROM txns WHERE LOWER(status)='settled'), 4)
+  requires_terms: [chargeback rate]
+  trap: true          # denominator is settled txns, not all txns
+
+- id: dispute_loss_rate
+  q: Of the disputes that have been resolved, what share did we lose?
+  truth: >
+    SELECT ROUND(100.0 * SUM(CASE WHEN outcome='lost' THEN 1 ELSE 0 END)
+      / SUM(CASE WHEN outcome IS NOT NULL THEN 1 ELSE 0 END), 4)
+    FROM disputes
+  requires_terms: [dispute loss rate]
+  trap: true          # open disputes must be excluded from both sides
+
+- id: net_payout_total
+  q: What is the total net payout to merchants, in dollars?
+  truth: SELECT ROUND(SUM(amt_cents - fee_cents)/100.0, 2) FROM payouts
+  requires_terms: [net payout]
+  trap: true          # gross payout is the easy wrong answer
+
+- id: take_rate
+  q: What is our take rate on payouts?
+  truth: SELECT ROUND(100.0 * SUM(fee_cents)/SUM(amt_cents), 4) FROM payouts
+  requires_terms: [take rate]
+
+- id: cnp_share
+  q: What share of settled transactions were card not present?
+  truth: >
+    SELECT ROUND(100.0 * SUM(CASE WHEN is_cp=FALSE THEN 1 ELSE 0 END)
+      / COUNT(*), 4)
+    FROM txns WHERE LOWER(status)='settled'
+  requires_terms: [card not present, settled transaction]
+
+- id: failed_count
+  q: How many transactions failed?
+  truth: SELECT COUNT(*) FROM txns WHERE LOWER(status)='failed'
+  requires_terms: [failed transaction]
+  trap: true          # casing drift: status='failed' misses FAILED
+
+- id: top_merchant_by_volume
+  q: Which merchant has the highest settled volume? Give the merchant id.
+  truth: >
+    SELECT mrch_id FROM txns WHERE LOWER(status)='settled'
+    GROUP BY mrch_id ORDER BY SUM(txn_amt_cents) DESC LIMIT 1
+  requires_terms: [settled volume]
+
+- id: vol_by_brand_visa
+  q: What is the settled volume in dollars for visa?
+  truth: >
+    SELECT ROUND(SUM(txn_amt_cents)/100.0, 2) FROM txns
+    WHERE LOWER(status)='settled' AND card_brand='visa'
+  requires_terms: [settled volume]
+
+- id: active_high_risk
+  q: How many active merchants are high risk?
+  truth: >
+    SELECT COUNT(*) FROM merchants
+    WHERE closed_dt IS NULL AND risk_tier='high'
+  requires_terms: [active merchant, high risk merchant]
+
+- id: avg_ticket_settled
+  q: What is the average settled transaction amount in dollars?
+  truth: >
+    SELECT ROUND(AVG(txn_amt_cents)/100.0, 4) FROM txns
+    WHERE LOWER(status)='settled'
+  requires_terms: [settled transaction]
+
+- id: restaurants_count
+  q: How many merchants are restaurants?
+  truth: SELECT COUNT(*) FROM merchants WHERE mcc=5812
+  requires_terms: [mcc_lookup]
+  trap: true          # there is no category name column, only an MCC code
+
+# Deliberately unanswerable. The correct behaviour is to say so, not to invent
+# a number. An agent with no way to decline is an agent that hallucinates.
+- id: unanswerable_refunds
+  q: What was our total refund amount last quarter?
+  truth: null
+  expect_refusal: true
+  requires_terms: []

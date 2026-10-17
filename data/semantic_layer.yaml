@@ -1,0 +1,121 @@
+# The semantic layer.
+#
+# These are business terms that do not exist as columns. Without this file the
+# model has to guess what "active merchant" or "chargeback rate" means, and it
+# will guess differently every run. With it, the definition is versioned,
+# reviewable, and the same every time.
+#
+# This is the single most important file in the repo. Everything else is
+# plumbing.
+
+tables:
+  merchants:
+    grain: one row per merchant
+    notes: >
+      closed_dt is NULL for merchants that have not churned. onboarded_dt and
+      closed_dt are stored as ISO text, not DATE. Cast before comparing.
+    columns:
+      mrch_id: merchant identifier, joins to txns.mrch_id and payouts.mrch_id
+      legal_name: registered business name
+      mcc: merchant category code, integer. see terms.mcc_lookup
+      risk_tier: low, med or high. NULL means never assessed, not low risk
+      closed_dt: date the merchant churned, NULL if still open
+
+  txns:
+    grain: one row per transaction attempt
+    notes: >
+      status has inconsistent casing from a legacy loader. Always compare with
+      LOWER(status). txn_amt_cents is in CENTS. Divide by 100.0 for dollars.
+    columns:
+      txn_amt_cents: transaction amount in cents
+      status: settled or failed, in mixed case
+      card_brand: visa, mastercard, amex, discover
+      is_cp: TRUE if card present (in person), FALSE if card not present
+
+  disputes:
+    grain: one row per dispute, joins to txns.txn_id
+    notes: outcome is NULL while the dispute is still open.
+    columns:
+      reason_cd: card network reason code
+      outcome: won, lost, or NULL if unresolved
+
+  payouts:
+    grain: one row per payout to a merchant
+    notes: amt_cents and fee_cents are both in CENTS.
+
+terms:
+  settled transaction:
+    definition: A transaction where LOWER(status) = 'settled'.
+    sql_hint: "WHERE LOWER(t.status) = 'settled'"
+
+  failed transaction:
+    definition: A transaction where LOWER(status) = 'failed'.
+    sql_hint: "WHERE LOWER(t.status) = 'failed'"
+
+  settled volume:
+    definition: >
+      Sum of txn_amt_cents over settled transactions only, expressed in
+      DOLLARS. Failed transactions never count toward volume.
+    sql_hint: "SUM(t.txn_amt_cents) / 100.0 WHERE LOWER(t.status)='settled'"
+
+  active merchant:
+    definition: >
+      A merchant whose closed_dt IS NULL. Risk tier is irrelevant to whether a
+      merchant is active. A merchant with zero transactions is still active if
+      they have not churned.
+    sql_hint: "WHERE m.closed_dt IS NULL"
+
+  churned merchant:
+    definition: A merchant whose closed_dt IS NOT NULL.
+    sql_hint: "WHERE m.closed_dt IS NOT NULL"
+
+  chargeback rate:
+    definition: >
+      Count of disputes divided by count of SETTLED transactions, as a
+      percentage. The denominator is settled transactions only, never all
+      transactions. A dispute on a failed transaction is a data error.
+    sql_hint: >
+      100.0 * COUNT(DISTINCT d.dispute_id)
+      / NULLIF(COUNT(DISTINCT CASE WHEN LOWER(t.status)='settled'
+                                   THEN t.txn_id END), 0)
+
+  dispute loss rate:
+    definition: >
+      Of disputes that have been RESOLVED (outcome IS NOT NULL), the share with
+      outcome = 'lost', as a percentage. Open disputes are excluded from both
+      numerator and denominator.
+    sql_hint: >
+      100.0 * SUM(CASE WHEN d.outcome='lost' THEN 1 ELSE 0 END)
+      / NULLIF(SUM(CASE WHEN d.outcome IS NOT NULL THEN 1 ELSE 0 END), 0)
+
+  net payout:
+    definition: >
+      amt_cents minus fee_cents, in DOLLARS. This is what the merchant actually
+      receives.
+    sql_hint: "SUM(p.amt_cents - p.fee_cents) / 100.0"
+
+  take rate:
+    definition: >
+      Total fee_cents divided by total amt_cents across payouts, as a
+      percentage. This is the business margin on payment processing.
+    sql_hint: "100.0 * SUM(p.fee_cents) / NULLIF(SUM(p.amt_cents), 0)"
+
+  card not present:
+    definition: A transaction where is_cp = FALSE. Higher fraud exposure.
+    sql_hint: "WHERE t.is_cp = FALSE"
+
+  high risk merchant:
+    definition: >
+      risk_tier = 'high'. NULL risk_tier means the merchant was never assessed
+      and must NOT be counted as high risk or as low risk.
+    sql_hint: "WHERE m.risk_tier = 'high'"
+
+  unassessed merchant:
+    definition: A merchant whose risk_tier IS NULL. Never assessed.
+    sql_hint: "WHERE m.risk_tier IS NULL"
+
+  mcc_lookup:
+    definition: >
+      Merchant category codes used in this warehouse.
+      5812 Restaurants, 5912 Pharmacy, 5411 Grocery, 7372 Software,
+      5732 Electronics, 8099 Health Services.

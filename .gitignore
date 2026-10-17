@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+traces/
+data/payments.duckdb
+evals/last_run.json
+.DS_Store
+.venv/
