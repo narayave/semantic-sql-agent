@@ -33,7 +33,7 @@ class ModelTurn:
 class AnthropicLLM:
     """Thin wrapper over the Messages API tool-use loop."""
 
-    def __init__(self, model: str = "claude-sonnet-4-5", max_tokens: int = 2048):
+    def __init__(self, model: str = "claude-haiku-5-5", max_tokens: int = 2048):
         try:
             import anthropic
         except ImportError as exc:  # pragma: no cover

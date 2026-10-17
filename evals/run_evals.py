@@ -109,7 +109,7 @@ def main() -> int:
     ap.add_argument("--scripted", action="store_true",
                     help="offline adapter, no API key, exercises the plumbing")
     ap.add_argument("--only", default="", help="comma separated case ids")
-    ap.add_argument("--model", default="claude-sonnet-4-5")
+    ap.add_argument("--model", default="claude-haiku-5-5")
     ap.add_argument("--max-steps", type=int, default=8)
     args = ap.parse_args()
 
