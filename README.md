@@ -27,6 +27,8 @@ python evals/run_evals.py
 
 ## What is here
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for diagrams of the whole flow.
+
 ```
 data/seed.py              builds a deliberately messy DuckDB warehouse
 data/semantic_layer.yaml  business term definitions   <- the important file
