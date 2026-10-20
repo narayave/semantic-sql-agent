@@ -47,6 +47,24 @@ total.** A fix for one case can break another.
 
 ---
 
+### How to read a trace
+
+`python evals/show_trace.py <case_id>` prints the newest trace for a case as a
+story. For every tool step, ask three questions:
+
+1. **What was it trying to do?** (the tool name and arguments)
+2. **Did it get what it needed?** (the output: a definition, or "No definition"?)
+3. **Did it use what it got?** (does the next step follow from this output?)
+
+The first step where one of these is "no" is where the run went wrong. Steps
+that wobble but recover (e.g. a failed lookup followed by a successful one)
+cost time, not accuracy, so note them and keep reading.
+
+**Best trick:** compare a passing and a failing trace of the same case. If the
+logic is the same, whatever differs is the cause.
+
+---
+
 ## Run log
 
 Same 17 cases, same prompt, same data. Only the model changes.
@@ -61,10 +79,32 @@ Same 17 cases, same prompt, same data. Only the model changes.
 
 ## Findings
 
+### Finding 3: dispute loss rate
+
+1. Get the truth.
+
+    Query ran and result was [(69.4737,)]
+
+2. Agent's answer
+
+    Going through the eval trace, and I see some notes about "dispute lost" and "dispute resolved" definitions missing.
+
+3. Go through checklist from above
+
+    The numbers seem correct, but maybe this is a rounding issue?
+
+4. Diagnosis - "It went wrong at step N because ___, so the lever is ___."
+
+
+5. Fix to iterate and test again
+I ran the query and the 
+
+---
+
 ### Finding 2: the newer model scored worse because it was more thorough (hypothesis)
 
-Sonnet 5.5 scored 3/17, Sonnet 5 scored 14/17. Before concluding the newer
-model is worse, I compared the same case across both runs.
+Sonnet 5.5 scored 3/17, Sonnet 5 scored 14/17. The newer model seems to output more than 1 output.
+Comparing the same case across both runs, and you can see the findings below.
 
 `vol_settled`, "What is the total settled volume in dollars?"
 
