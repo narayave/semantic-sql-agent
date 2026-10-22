@@ -27,7 +27,9 @@ python evals/run_evals.py
 
 ## What is here
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for diagrams of the whole flow.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for diagrams of the whole flow, and
+[SNOWFLAKE.md](SNOWFLAKE.md) for running the same agent against Snowflake and
+why that is worth doing.
 
 ```
 data/seed.py              builds a deliberately messy DuckDB warehouse
