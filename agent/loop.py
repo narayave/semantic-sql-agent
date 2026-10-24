@@ -23,7 +23,9 @@ from .trace import Step, Trace
 
 MAX_STEPS = 8
 
-SYSTEM = """You answer questions about a payments warehouse by querying it.
+SYSTEM = """You answer questions about a data warehouse by querying it. This is a
+conversation: use earlier turns to resolve follow-ups like "and by month?",
+but query again rather than reusing an old number for a changed question.
 
 Rules, in order of importance:
 
@@ -44,10 +46,17 @@ Rules, in order of importance:
 
 
 def run(question: str, llm, toolbox: Toolbox | None = None,
-        max_steps: int = MAX_STEPS, verbose: bool = False) -> Trace:
+        max_steps: int = MAX_STEPS, verbose: bool = False,
+        history: list[dict] | None = None) -> Trace:
+    """Pass the same `history` list on every turn of a chat. It is extended in
+    place with this turn's messages, tool calls included, so a follow-up can
+    see the SQL behind the previous answer."""
     tb = toolbox or Toolbox()
     tr = Trace(question=question)
-    messages: list[dict] = [{"role": "user", "content": question}]
+    # ponytail: full history grows every turn; trim old tool results if long
+    # chats hit the context limit.
+    messages = history if history is not None else []
+    messages.append({"role": "user", "content": question})
 
     for step_n in range(1, max_steps + 1):
         t0 = time.time()
@@ -83,6 +92,9 @@ def run(question: str, llm, toolbox: Toolbox | None = None,
 
     tr.stop_reason = "max_steps"
     tr.answer = None
+    # Close the turn so the next question doesn't follow a user message.
+    messages.append({"role": "assistant",
+                     "content": "(Stopped: step limit reached, no answer.)"})
     return tr
 
 

@@ -25,6 +25,69 @@ python run.py "What is the chargeback rate for high risk merchants?"
 python evals/run_evals.py
 ```
 
+## Chat app
+
+A browser chat over the same agent. It remembers the conversation, so you can
+ask a follow-up after an answer.
+
+**Setup, once:**
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python data/seed.py       # builds data/payments.duckdb
+cp .env.example .env                # then put your ANTHROPIC_API_KEY in it
+```
+
+**Run it:**
+
+```bash
+BACKEND=duckdb .venv/bin/streamlit run app.py
+```
+
+It opens at http://localhost:8501. Stop it with Ctrl+C. Without
+`BACKEND=duckdb` it connects to Snowflake instead, see
+[SNOWFLAKE.md](SNOWFLAKE.md).
+
+**Using it:**
+
+- Under each answer, the **tool calls** section shows every step, including
+  the SQL and any query the agent got wrong and fixed.
+- The sidebar lists the tables and the business terms the agent knows.
+- **Clear conversation** starts fresh.
+- Each conversation is saved as one trace, `traces/chat-<id>.jsonl`. Read it
+  with `python evals/show_trace.py chat`.
+
+**Questions to try:**
+
+Simple counts:
+
+- How many transactions failed?
+- How many merchants have never been risk assessed?
+- What is the average settled transaction amount in dollars?
+
+Business terms, which the agent looks up in the semantic layer before writing
+SQL:
+
+- How many active merchants are there?
+- What is the overall chargeback rate?
+- Of the disputes that have been resolved, what share did we lose?
+- What is our take rate on payouts?
+
+Follow-ups, asked one after another in the same chat:
+
+1. What is the chargeback rate for high risk merchants?
+2. How does that compare to low risk ones?
+3. Which high risk merchant has the most disputes?
+
+1. What is the total settled volume in dollars?
+2. Break that down by card brand.
+3. What share of it was card not present?
+
+A question it should decline, because there is no refunds data:
+
+- What was our total refund amount last quarter?
+
 ## What is here
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for diagrams of the whole flow, and

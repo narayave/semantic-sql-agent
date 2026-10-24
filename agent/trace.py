@@ -1,7 +1,7 @@
 """
 Trace recording.
 
-One JSONL file per run, one line per step. You cannot debug an agent without
+One JSONL file per run (or per chat), one line per step. You cannot debug an agent without
 traces, and the eval set gets built out of them later. This is a deliberately
 small stand in for OpenTelemetry spans.
 """
@@ -54,10 +54,13 @@ class Trace:
         return [s.args.get("term", "") for s in self.steps
                 if s.kind == "tool" and s.name == "lookup_term"]
 
-    def write(self, label: str = "run") -> Path:
+    def write(self, label: str = "run", path: Path | None = None) -> Path:
+        """Own file per run, or pass `path` to append: a chat writes every
+        turn to one file, each turn starting with its own header line."""
         TRACE_DIR.mkdir(exist_ok=True)
-        path = TRACE_DIR / f"{label}-{self.trace_id}.jsonl"
-        with path.open("w") as fh:
+        mode = "a" if path else "w"
+        path = path or TRACE_DIR / f"{label}-{self.trace_id}.jsonl"
+        with path.open(mode) as fh:
             fh.write(json.dumps({
                 "trace_id": self.trace_id,
                 "question": self.question,

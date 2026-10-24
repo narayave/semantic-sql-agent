@@ -13,11 +13,13 @@ to see the reasoning, not just the number.
 from __future__ import annotations
 
 import os
+import uuid
 
 import streamlit as st
 
 from agent.llm import AnthropicLLM
 from agent.loop import run
+from agent.trace import TRACE_DIR
 
 BACKEND = os.environ.get("BACKEND", "snowflake").lower()
 
@@ -57,10 +59,16 @@ with st.sidebar:
         st.stop()
     if st.button("Clear conversation"):
         st.session_state.history = []
+        st.session_state.messages = []
+        st.session_state.trace_path = None
         st.rerun()
 
 if "history" not in st.session_state:
-    st.session_state.history = []
+    st.session_state.history = []      # what the page shows
+    st.session_state.messages = []     # what the model sees, tool calls included
+if not st.session_state.get("trace_path"):
+    # One trace file per conversation; every turn appends to it.
+    st.session_state.trace_path = TRACE_DIR / f"chat-{uuid.uuid4().hex[:12]}.jsonl"
 
 for turn in st.session_state.history:
     with st.chat_message(turn["role"]):
@@ -83,10 +91,19 @@ if prompt := st.chat_input("e.g. what is the chargeback rate for high risk merch
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            # Fresh toolbox per question so per-run counters stay clean.
+            # Reset per-run counters; the conversation lives in `messages`.
             tb = get_toolbox()
             tb.terms_looked_up, tb.sql_attempts, tb.sql_errors = [], [], []
-            tr = run(prompt, AnthropicLLM(), toolbox=tb)
+            msgs = st.session_state.messages
+            mark = len(msgs)
+            try:
+                tr = run(prompt, AnthropicLLM(), toolbox=tb, history=msgs)
+            except Exception as exc:
+                # Drop the half-written turn so the next question still works.
+                del msgs[mark:]
+                st.error(f"Agent failed: {exc}")
+                st.session_state.history.pop()
+                st.stop()
 
         answer = tr.answer or "_No answer produced within the step budget._"
         st.markdown(answer)
@@ -112,7 +129,7 @@ if prompt := st.chat_input("e.g. what is the chargeback rate for high risk merch
         if tr.looked_up_terms:
             bits.append("terms: " + ", ".join(f"`{t}`" for t in tr.looked_up_terms))
         st.caption(" | ".join(bits))
-        tr.write("chat")
+        tr.write(path=st.session_state.trace_path)
 
     st.session_state.history.append(
         {"role": "assistant", "content": answer, "steps": steps}
