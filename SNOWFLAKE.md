@@ -46,6 +46,10 @@ SNOWFLAKE_DATABASE=SNOWFLAKE_SAMPLE_DATA
 SNOWFLAKE_SCHEMA=TPCH_SF1
 ```
 
+For key-pair auth instead of a password, set `SNOWFLAKE_PRIVATE_KEY_PATH` to
+the key file, or `SNOWFLAKE_PRIVATE_KEY` to the PEM text itself (handy in a
+container, where secrets arrive as env vars).
+
 `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1` ships with every account: customers, orders,
 lineitems, suppliers, nations, regions. Good enough to prove the plumbing.
 
@@ -62,7 +66,8 @@ print(tb.run_sql('SELECT COUNT(*) AS n FROM customer').text)
 "
 ```
 
-Three passing calls means the port is done.
+Three passing calls means the port is done. On macOS's system Python 3.9 you
+will also see a `NotOpenSSLWarning` from urllib3; it is harmless.
 
 ## 4. Chat UI
 
@@ -81,7 +86,7 @@ streamlit run app.py                    # against Snowflake
    deliberately unanswerable
 5. Run the evals, report accuracy **and the failure buckets**
 
-## Three things that will bite
+## Four things that will bite
 
 **Identifier case.** Snowflake folds unquoted names to uppercase. `get_schema`
 already compares with `UPPER()`. If the dataset was created with quoted
@@ -90,6 +95,10 @@ lowercase names, you will need quoted identifiers in SQL too.
 **Session context.** Role, warehouse, database and schema are four separate
 things. Missing one gives "Cannot perform SELECT. This session does not have a
 current database", which looks like a permissions problem and is not.
+
+**Views, not tables.** Marketplace and shared datasets arrive as views, and a
+big listing has hundreds of them. `list_tables` reads views too and is not
+held to the 50-row answer cap, or the agent sees an empty or partial catalog.
 
 **Warehouse suspend.** A trial warehouse auto-suspends. The first query after
 idle takes a few seconds to resume. Not a bug.
