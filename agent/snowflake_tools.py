@@ -62,9 +62,20 @@ class SnowflakeToolbox:
                 "fails with a misleading 'no current database' error."
             )
 
-        # key-pair auth if a key path is set, otherwise password
+        # key-pair auth: PEM text in an env var (containers), or a key file
+        # path (laptop), otherwise password
+        key_pem = os.environ.get("SNOWFLAKE_PRIVATE_KEY")
         key_path = os.environ.get("SNOWFLAKE_PRIVATE_KEY_PATH")
-        if key_path:
+        if key_pem:
+            from cryptography.hazmat.primitives import serialization
+            key = serialization.load_pem_private_key(key_pem.encode(), password=None)
+            cfg.pop("password", None)
+            cfg["private_key"] = key.private_bytes(
+                serialization.Encoding.DER,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+        elif key_path:
             cfg.pop("password", None)
             cfg["private_key_file"] = key_path
             if os.environ.get("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"):
@@ -72,7 +83,10 @@ class SnowflakeToolbox:
 
         self.db = cfg["database"]
         self.schema = cfg["schema"]
+        # The app caches one connection for the life of the process;
+        # without keep-alive Snowflake expires the session after ~4h idle.
         self.con = snowflake.connector.connect(
+            client_session_keep_alive=True,
             **{k: v for k, v in cfg.items() if v is not None}
         )
 
