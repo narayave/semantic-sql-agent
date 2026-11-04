@@ -13,6 +13,8 @@ Snowflake differences that actually bite, all handled below:
   - a session carries four pieces of context: role, warehouse, database, schema.
     Miss one and you get "Cannot perform SELECT. This session does not have a
     current database", which reads like a permissions error and is not
+  - Marketplace and shared datasets are usually views, not tables, so
+    list_tables must not filter on table_type = 'BASE TABLE'
   - errors arrive as snowflake.connector.errors.ProgrammingError. The message is
     good, so the repair loop works the same way it does on DuckDB
 """
@@ -62,9 +64,20 @@ class SnowflakeToolbox:
                 "fails with a misleading 'no current database' error."
             )
 
-        # key-pair auth if a key path is set, otherwise password
+        # key-pair auth: PEM text in an env var (containers), or a key file
+        # path (laptop), otherwise password
+        key_pem = os.environ.get("SNOWFLAKE_PRIVATE_KEY")
         key_path = os.environ.get("SNOWFLAKE_PRIVATE_KEY_PATH")
-        if key_path:
+        if key_pem:
+            from cryptography.hazmat.primitives import serialization
+            key = serialization.load_pem_private_key(key_pem.encode(), password=None)
+            cfg.pop("password", None)
+            cfg["private_key"] = key.private_bytes(
+                serialization.Encoding.DER,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+        elif key_path:
             cfg.pop("password", None)
             cfg["private_key_file"] = key_path
             if os.environ.get("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"):
@@ -72,7 +85,10 @@ class SnowflakeToolbox:
 
         self.db = cfg["database"]
         self.schema = cfg["schema"]
+        # The app caches one connection for the life of the process;
+        # without keep-alive Snowflake expires the session after ~4h idle.
         self.con = snowflake.connector.connect(
+            client_session_keep_alive=True,
             **{k: v for k, v in cfg.items() if v is not None}
         )
 
@@ -84,11 +100,11 @@ class SnowflakeToolbox:
 
     # ---------------- internals ----------------
 
-    def _q(self, sql: str, params: tuple = ()):
+    def _q(self, sql: str, params: tuple = (), limit: int = MAX_ROWS + 1):
         cur = self.con.cursor()
         try:
             cur.execute(sql, params)
-            return [d[0] for d in cur.description], cur.fetchmany(MAX_ROWS + 1)
+            return [d[0] for d in cur.description], cur.fetchmany(limit)
         finally:
             cur.close()
 
@@ -98,9 +114,9 @@ class SnowflakeToolbox:
         try:
             _, rows = self._q(
                 "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = %s AND table_type = 'BASE TABLE' "
-                "ORDER BY table_name",
+                "WHERE table_schema = %s ORDER BY table_name",
                 (self.schema.upper(),),
+                limit=1000,  # the row cap is for answers; a catalog needs every name
             )
         except Exception as exc:
             return ToolResult(f"Could not list tables: {exc}", ok=False)
