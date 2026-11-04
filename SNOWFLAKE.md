@@ -34,14 +34,63 @@ From the account URL `https://xy12345.us-east-1.snowflakecomputing.com`, your
 `SNOWFLAKE_ACCOUNT` is `xy12345.us-east-1`. Getting this wrong is the most
 common first failure.
 
-## 2. Fill in .env
+## 2. A read-only role for the agent
+
+Snowflake has no read-only connection, so the role is the real guardrail. The
+regex in `run_sql` is only the first check. Don't connect as `ACCOUNTADMIN`.
+
+Make a key pair on your laptop:
+
+```bash
+openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -out rsa_key.p8
+openssl rsa -in rsa_key.p8 -pubout -out rsa_key.pub
+```
+
+Then run this once as `ACCOUNTADMIN` in a worksheet, pasting the body of
+`rsa_key.pub` (without the BEGIN/END lines):
+
+```sql
+USE ROLE ACCOUNTADMIN;
+
+-- its own small warehouse, so the agent's spend shows up separately
+CREATE WAREHOUSE IF NOT EXISTS AGENT_WH
+  WAREHOUSE_SIZE = XSMALL AUTO_SUSPEND = 60 AUTO_RESUME = TRUE
+  INITIALLY_SUSPENDED = TRUE;
+
+CREATE ROLE IF NOT EXISTS AGENT_READER;
+GRANT USAGE ON WAREHOUSE AGENT_WH TO ROLE AGENT_READER;  -- run queries, not resize
+
+-- a shared database (sample data, Marketplace listings) takes one grant
+GRANT IMPORTED PRIVILEGES ON DATABASE SNOWFLAKE_SAMPLE_DATA TO ROLE AGENT_READER;
+
+-- a database you own takes USAGE plus SELECT, including on future objects
+-- GRANT USAGE ON DATABASE MY_DB TO ROLE AGENT_READER;
+-- GRANT USAGE ON SCHEMA MY_DB.MY_SCHEMA TO ROLE AGENT_READER;
+-- GRANT SELECT ON ALL TABLES IN SCHEMA MY_DB.MY_SCHEMA TO ROLE AGENT_READER;
+-- GRANT SELECT ON ALL VIEWS IN SCHEMA MY_DB.MY_SCHEMA TO ROLE AGENT_READER;
+-- GRANT SELECT ON FUTURE TABLES IN SCHEMA MY_DB.MY_SCHEMA TO ROLE AGENT_READER;
+-- GRANT SELECT ON FUTURE VIEWS IN SCHEMA MY_DB.MY_SCHEMA TO ROLE AGENT_READER;
+
+-- a service user can't log in with a password, only the key
+CREATE USER IF NOT EXISTS AGENT_APP
+  TYPE = SERVICE
+  DEFAULT_ROLE = AGENT_READER
+  DEFAULT_WAREHOUSE = AGENT_WH
+  RSA_PUBLIC_KEY = 'MIIBIjANBgkqh...';
+GRANT ROLE AGENT_READER TO USER AGENT_APP;
+```
+
+Keep `rsa_key.p8` out of the repo. `.gitignore` doesn't cover it, so store it
+outside the project folder.
+
+## 3. Fill in .env
 
 ```
 SNOWFLAKE_ACCOUNT=xy12345.us-east-1
-SNOWFLAKE_USER=your_user
-SNOWFLAKE_PASSWORD=...
-SNOWFLAKE_ROLE=ACCOUNTADMIN
-SNOWFLAKE_WAREHOUSE=COMPUTE_WH
+SNOWFLAKE_USER=AGENT_APP
+SNOWFLAKE_PRIVATE_KEY_PATH=/path/to/rsa_key.p8
+SNOWFLAKE_ROLE=AGENT_READER
+SNOWFLAKE_WAREHOUSE=AGENT_WH
 SNOWFLAKE_DATABASE=SNOWFLAKE_SAMPLE_DATA
 SNOWFLAKE_SCHEMA=TPCH_SF1
 ```
@@ -49,7 +98,7 @@ SNOWFLAKE_SCHEMA=TPCH_SF1
 `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1` ships with every account: customers, orders,
 lineitems, suppliers, nations, regions. Good enough to prove the plumbing.
 
-## 3. Verify
+## 4. Verify
 
 ```bash
 pip install -r requirements.txt
@@ -62,9 +111,23 @@ print(tb.run_sql('SELECT COUNT(*) AS n FROM customer').text)
 "
 ```
 
-Three passing calls means the port is done.
+Three passing calls means the port is done. Then check the role, not the
+regex, is what stops a write. Send one straight to the connection:
 
-## 4. Chat UI
+```bash
+python -c "
+from agent.snowflake_tools import SnowflakeToolbox
+tb = SnowflakeToolbox()
+tb.con.cursor().execute('CREATE TABLE agent_probe (i INT)')
+"
+```
+
+It should fail with `SQL access control error`, or `... is not allowed` on a
+shared database. If
+it creates the table, the role has more than `SELECT`; drop the table and
+recheck the grants.
+
+## 5. Chat UI
 
 ```bash
 BACKEND=duckdb streamlit run app.py     # works now, no credentials
