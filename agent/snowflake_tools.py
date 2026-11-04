@@ -13,6 +13,8 @@ Snowflake differences that actually bite, all handled below:
   - a session carries four pieces of context: role, warehouse, database, schema.
     Miss one and you get "Cannot perform SELECT. This session does not have a
     current database", which reads like a permissions error and is not
+  - Marketplace and shared datasets are usually views, not tables, so
+    list_tables must not filter on table_type = 'BASE TABLE'
   - errors arrive as snowflake.connector.errors.ProgrammingError. The message is
     good, so the repair loop works the same way it does on DuckDB
 """
@@ -98,11 +100,11 @@ class SnowflakeToolbox:
 
     # ---------------- internals ----------------
 
-    def _q(self, sql: str, params: tuple = ()):
+    def _q(self, sql: str, params: tuple = (), limit: int = MAX_ROWS + 1):
         cur = self.con.cursor()
         try:
             cur.execute(sql, params)
-            return [d[0] for d in cur.description], cur.fetchmany(MAX_ROWS + 1)
+            return [d[0] for d in cur.description], cur.fetchmany(limit)
         finally:
             cur.close()
 
@@ -112,9 +114,9 @@ class SnowflakeToolbox:
         try:
             _, rows = self._q(
                 "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = %s AND table_type = 'BASE TABLE' "
-                "ORDER BY table_name",
+                "WHERE table_schema = %s ORDER BY table_name",
                 (self.schema.upper(),),
+                limit=1000,  # the row cap is for answers; a catalog needs every name
             )
         except Exception as exc:
             return ToolResult(f"Could not list tables: {exc}", ok=False)
